@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * Implements hook_install().
+ */
+function categories_install() {
+
+  $vocabulary = taxonomy_vocabulary_machine_name_load('categories_menu_vocab_h3h');
+  if (!$vocabulary) {
+    $vocabulary = (object) array(
+      'name' => 'Categories',
+      // unique machine name to try to ensure no collisions
+      'machine_name' => 'categories_menu_vocab_h3h',
+    );
+
+    taxonomy_vocabulary_save($vocabulary);
+  }
+
+  //@ todo set taxonomy_menu settings
+
+  variable_set('categories_vid', $vocabulary->vid);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function categories_uninstall() {
+  // @todo delete vocab and terms
+}

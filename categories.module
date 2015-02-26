@@ -1,0 +1,371 @@
+<?php
+
+define('CATEGORIES_NODE', 1);
+define('CATEGORIES_ADD', 2);
+define('CATEGORIES_NODE_MOVE', 3);
+define('CATEGORIES_TRANSFORM', 4);
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function categories_ctools_plugin_directory($owner, $plugin_type) {
+  if ($owner == 'ctools' && $plugin_type == 'content_types') {
+    return 'plugins/' . $plugin_type;
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function categories_menu() {
+  $items = array();
+
+  $items['node/%node/page'] = array(
+    'title' => 'Create a page',
+    'page callback' => 'categories_node',
+    'page arguments' => array(1, (string) CATEGORIES_NODE),
+    'access callback' => 'categories_access',
+    'access arguments' => array(1, (string) CATEGORIES_NODE),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 20,
+    'file' => 'categories.pages.inc',
+  );
+
+  $items['node/%node/new-category'] = array(
+    'title' => 'Create a category',
+    'page callback' => 'categories_node',
+    'page arguments' => array(1, (string) CATEGORIES_ADD),
+    'access callback' => 'categories_access',
+    'access arguments' => array(1, (string) CATEGORIES_ADD),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 30,
+    'file' => 'categories.pages.inc',
+  );
+
+  $items['node/%node/category'] = array(
+    'title' => 'Turn into a category',
+    'description' => 'Turn this page into a category, so other pages can be nested underneath it and it will be visible in the menu navigation',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('categories_node_transform', 1),
+    'access callback' => 'categories_access',
+    'access arguments' => array(1, (string) CATEGORIES_TRANSFORM),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 20,
+    'file' => 'categories.pages.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_node_submit().
+ */
+function categories_node_submit($node, $form, &$form_state) {
+ if (!empty($form_state['node']->field_category_homepage[LANGUAGE_NONE][0]['tid'])) {
+  $form_state['redirect'] = 'taxonomy/term/' .  $form_state['node']->field_category_homepage[LANGUAGE_NONE][0]['tid'];
+ }
+}
+
+function categories_access($entity, $action = FALSE) {
+  switch ($action) {
+    case CATEGORIES_TRANSFORM:
+      return $entity->type == 'page' && node_access('update', $entity) && empty($entity->field_category_homepage[LANGUAGE_NONE][0]['tid']);
+    case CATEGORIES_ADD:
+    case CATEGORIES_NODE:
+      return node_access('update', $entity) && !empty($entity->field_category_homepage[LANGUAGE_NONE][0]['tid']);
+    case CATEGORIES_NODE_MOVE:
+      return user_is_logged_in();
+    default:
+      return node_access('update', $entity) && $entity->type == 'page';
+  }
+
+  return FALSE;
+}
+
+/**
+ * Implements hook_admin_paths().
+ */
+function categories_admin_paths() {
+  return array(
+    'node/*/page' => TRUE,
+    'node/*/new-category' => TRUE,
+    'node/*/category' => TRUE,
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function categories_form_page_node_form_alter(&$form, &$form_state, $form_id) {
+  // if this user isn't an admin for nodes
+  // do not let them see the option for category homepages
+  if (!user_access('bypass node access')) {
+    $form['field_category_homepage']['#attributes']['style'] = 'display:none';
+  }
+
+  // if this is the node/add/BUNDLE page
+  // and the parent_category ID was passed
+  // set those values in $form_state, so they persist over AJAX calls
+  if (arg(1) == 'add' && isset($_GET['parent_category'])) {
+    $new_category = $form_state['new_category'] = !empty($_GET['new_category']);
+    $parent_category = $form_state['parent_category'] = $_GET['parent_category'];
+  }
+  // else this is either an AJAX call on node/add/BUNDLE
+  // OR node/add/BUNDLE with no category information passed
+  // OR a node edit page
+  else {
+    $parent_category = isset($form_state['parent_category']) ? $form_state['parent_category'] : FALSE;
+    $new_category = isset($form_state['new_category']) ? $form_state['new_category'] : FALSE;
+  }
+
+  // if adding a page to a category, or creating a sub category
+  // set the default value for the category/page's field_category
+  if ($parent_category) {
+    _categories_node_form_alter($form, $parent_category);
+  }
+
+
+  // if editing an existing homepage category
+  // OR creating a new category
+  // only let the user select one category
+  if (!empty($form['#node']->field_category_homepage[LANGUAGE_NONE][0]['tid'])
+    || $new_category) {
+    $form['field_category'][LANGUAGE_NONE]['#max_choices'] = 1;
+    drupal_add_js("jQuery(document).ready(function(){jQuery('.term-reference-tree-level:first > li:first').hide();});", 'inline');
+
+    // if creating a new category, set a form_state variable so we'll know
+    // on  node submit to create a taxonomy term for this node
+    if ($new_category) {
+      $form_state['categories_create'] = TRUE;
+    }
+  }
+
+  // custom validation function for nodes
+  $form['#validate'][] = '_categories_node_validate';
+}
+
+function _categories_node_form_alter(&$form, $parent) {
+  // load the node from the node ID of the parent category
+  $node = node_load($parent);
+  if ($node) {
+    // get the category homepage for this node
+    $tid = $node->field_category_homepage[LANGUAGE_NONE][0]['tid'];
+    // set the parent's category homepage as the default category
+    $form['field_category'][LANGUAGE_NONE]['#default_value'][$tid] =
+      $tid;
+  }
+}
+
+/**
+ * Validation function for nodes
+ */
+function _categories_node_validate($form, &$form_state) {
+  $values = &$form_state['values'];
+
+  // if trying to delete the node
+  // AND this node is a category
+  if ($values['op'] == 'Delete' &&
+    !empty($values['field_category_homepage'][LANGUAGE_NONE][0]['tid'])) {
+
+    // taxonomy term ID of homepage term
+    $tid = $values['field_category_homepage'][LANGUAGE_NONE][0]['tid'];
+
+    // get all nodes associated with the homepage
+    $nodes = _categories_get_homepage_nodes($form_state['values']['nid'], $tid);
+    // if there are any nodes associated
+    if (count($nodes)) {
+
+      $items = array();
+      $attributes = array('attributes' => array('target' => '_blank'));
+      foreach ($nodes as $nid => $title) {
+        // if this page is only associated with this category
+        // add it to the list of nodes that need moved
+        if (db_query('SELECT COUNT(*) FROM {field_data_field_category}
+          WHERE entity_type = :node AND entity_id = :nid', array(':node' => 'node', ':nid' => $nid))->fetchField() < 2) {
+          $items[] = l($title, 'node/' . $nid, $attributes);
+        }
+      }
+
+      // if there are any nodes that need moved
+      // don't let the user delete this page
+      if (count($items)) {
+        form_set_error('', 'The following pages are categorized under this page.
+          They will no longer have any category if you delete this page.
+          You will need to move these pages elsewhere before deleting');
+        drupal_set_message(theme('item_list', array('items' => $items)), 'error');
+      }
+    }
+    else {
+      $tree = taxonomy_get_tree(variable_get('categories_vid'), $tid);
+
+      if (count($tree)) {
+        form_set_error('', 'The following pages are categorized under this page.
+          They will no longer have any category if you delete this page.
+          You will need to move these pages elsewhere before deleting');
+        foreach ($tree as $term) {
+          drupal_set_message($term->name, 'error');
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_attach_submit().
+ */
+function categories_field_attach_submit($entity_type, $entity, $form, &$form_state) {
+  // if this is a node being saved
+  // and the form_state variable is set to let us know the user is creating a category homepage
+  if ($entity_type == 'node'
+    && !empty($form_state['categories_create'])) {
+    // create a taxonomy term for this node
+    $tid = categories_create_taxonomy_term($entity->title, FALSE, '', $form_state['values']['field_category'][LANGUAGE_NONE][0]['tid']);
+    // and set the field_category_homepage to the new taxonomy term ID
+    $entity->field_category_homepage[LANGUAGE_NONE][0]['tid'] = $tid;
+    $entity->field_category[LANGUAGE_NONE][0]['tid'] = $tid;
+  }
+}
+
+/**
+ * Implements hook_node_presave().
+ */
+function categories_node_presave($node) {
+  if ($node->is_new) {
+    return;
+  }
+
+  // when user updates a node title for a homepage node
+  // update the taxonomy term, too
+  if (!empty($node->field_category_homepage[LANGUAGE_NONE][0]['tid'])) {
+    $term = taxonomy_term_load($node->field_category_homepage[LANGUAGE_NONE][0]['tid']);
+    $save = FALSE;
+    if ($term->name != $node->title) {
+      $term->name = $node->title;
+      $save = TRUE;
+    }
+
+    if ((empty($node->original->field_category[LANGUAGE_NONE][0]['tid']) || $node->field_category[LANGUAGE_NONE][0]['tid'] !== $node->original->field_category[LANGUAGE_NONE][0]['tid']) &&
+      $node->field_category[LANGUAGE_NONE][0]['tid'] !== $node->field_category_homepage[LANGUAGE_NONE][0]['tid']) {
+      $term->parent = array($node->field_category[LANGUAGE_NONE][0]['tid']);
+      $node->field_category[LANGUAGE_NONE][0]['tid'] = $node->field_category_homepage[LANGUAGE_NONE][0]['tid'];
+      $save = TRUE;
+    }
+    if ($save) {
+      taxonomy_term_save($term);
+    }
+  }
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function categories_node_delete($node) {
+  if (!empty($node->field_category_homepage[LANGUAGE_NONE][0]['tid'])) {
+    taxonomy_term_delete($node->field_category_homepage[LANGUAGE_NONE][0]['tid']);
+  }
+}
+
+/**
+ * Used on category homepages
+ *
+ * Get all nodes associated to the taxonomy term this node is a homepage for
+ */
+function categories_get_homepage_nodes($nid, $orderBy = 'n.changed', $direction = 'DESC') {
+  $output = '';
+  $tid = db_query("SELECT field_category_homepage_tid FROM {field_data_field_category_homepage}
+      WHERE entity_type = 'node' AND bundle = 'page'
+      AND entity_id = :nid", array(':nid' => $nid))->fetchField();
+
+  if ($tid) {
+    $nids = _categories_get_homepage_nodes($nid, $tid, $orderBy, $direction, TRUE);
+    if (count($nids)) {
+      $nodes = node_load_multiple(array_keys($nids));
+      $view = node_view_multiple($nodes, 'teaser');
+      $output .= render($view) . theme('pager');
+    }
+  }
+
+  return $output;
+}
+
+/**
+ * Helper function.
+ *
+ * @param  $nid - {node}.nid of category homepage node
+ * @param  $tid - {taxonomy_term_data}.tid of taxonomy term $nid is a homepage for
+ *
+ * @return array keyed by node ID, pointing to node titles of all nodes with the taxonomy term $tid
+ */
+function _categories_get_homepage_nodes($nid, $tid, $orderBy = FALSE, $direction = FALSE, $pager = FALSE) {
+  $query = db_select('taxonomy_index', 't');
+  $query->innerJoin('node', 'n', 'n.nid = t.nid');
+  $query->addTag('node_access');
+
+  // get node ID's of all subcategories of this category
+  $nids = db_query('SELECT i.nid FROM {taxonomy_term_hierarchy} h
+        INNER JOIN {taxonomy_index} i ON _i.tid = h.tid
+        WHERE h.parent = :tid', array(':tid' => $tid))->fetchCol();
+  // also add this category node ID to the array, so it won't be returned in the query
+  // i.e. we don't the node we're viewing to have itself displayed in the list of tagged nodes
+  $nids[] = $nid;
+
+  $query->condition('tid', $tid)
+        ->condition('t.nid', $nids, 'NOT IN');
+
+  if ($pager) {
+    $count_query = clone $query;
+    $count_query->addExpression('COUNT(t.nid)');
+
+    $query = $query->extend('PagerDefault');
+    $query = $query->limit(10);
+    $query->setCountQuery($count_query);
+  }
+
+  $query->fields('n', array('nid', 'title'));
+  if ($orderBy) {
+    if (!$direction) {
+      $direction = 'DESC';
+    }
+
+    $query->orderBy($orderBy, $direction);
+  }
+
+  return $query->execute()->fetchAllKeyed();
+}
+
+/**
+ * Helper function to get the category this $nid belongs to
+ */
+function categories_get_node_category($nid, $return_function = 'fetchField') {
+  return db_query('SELECT field_category_tid AS tid, parent
+    FROM {field_data_field_category} c
+    INNER JOIN {taxonomy_term_hierarchy} h ON c.field_category_tid = h.tid
+    WHERE entity_type = :type AND entity_id = :nid', array(':type' => 'node', ':nid' => $nid)
+  )->{$return_function}();
+}
+
+function categories_is_homepage_node($nid) {
+  $d_args = array(
+    ':type' => 'node',
+    ':bundle' => 'page',
+    ':nid' => $nid,
+  );
+
+  return db_query('SELECT field_category_homepage_tid
+    FROM {field_data_field_category_homepage}
+    WHERE entity_type = :type AND bundle = :bundle AND entity_id = :nid', $d_args
+  )->fetchField();
+}
+
+function categories_get_homepage_node($tid) {
+  $d_args = array(
+    ':type' => 'node',
+    ':bundle' => 'page',
+    ':tid' => $tid,
+  );
+
+  return db_query('SELECT entity_id
+    FROM {field_data_field_category_homepage}
+    WHERE entity_type = :type AND bundle = :bundle AND field_category_homepage_tid = :tid', $d_args
+  )->fetchField();
+}

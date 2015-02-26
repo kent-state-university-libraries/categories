@@ -1,0 +1,6 @@
+name = Categories
+description = todo
+package =  Other
+core = 7.x
+
+dependencies[] = taxonomy_menu
