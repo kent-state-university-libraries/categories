@@ -1,5 +1,64 @@
 <?php
 
+
+/**
+ * Implements hook_schema().
+ */
+function categories_schema() {
+  $schema = array();
+
+  $schema['categories_settings'] = array(
+    'description' => 'Category content link settings',
+    'fields' => array(
+      'nid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+      ),
+      'tag' => array(
+        'type' => 'varchar',
+        'length' => 2,
+        'default' => 'h2'
+      ),
+      'pager_limit' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'default' => 10,
+      ),
+      'sort_by' => array(
+        'type' => 'varchar',
+        'length' => 10,
+        'default' => 'changed',
+      ),
+      'sort_order' => array(
+        'type' => 'varchar',
+        'length' => 4,
+        'default' => 'DESC',
+      ),
+      'display_author' => array(
+        'type' => 'int',
+        'mysql_type' => 'BOOLEAN',
+        'size' => 'tiny',
+        'default' => 0,
+      ),
+      'summary' => array(
+        'type' => 'int',
+        'mysql_type' => 'BOOLEAN',
+        'size' => 'tiny',
+        'default' => 0,
+      ),
+      'title' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'default' => '',
+      ),
+    ),
+    'primary key' => array('nid'),
+  );
+
+  return $schema;
+}
+
 /**
  * Implements hook_install().
  */

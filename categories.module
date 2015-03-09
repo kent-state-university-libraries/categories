@@ -15,6 +15,35 @@ function categories_ctools_plugin_directory($owner, $plugin_type) {
 }
 
 /**
+ * Implements hook_url_inbound_alter().
+ */
+function categories_url_inbound_alter(&$path, $original_path, $path_language) {
+  $uri = explode('/', $path);
+  $count = count($uri);
+
+  // if the user is visiting /taxonomy/term/%
+  if ($count == 3 && $uri[0] == 'taxonomy') {
+    // see if there is a node that acts as this term's homepage
+    $nid = db_query("SELECT entity_id FROM {field_data_field_category_homepage}
+      WHERE entity_type = 'node' AND bundle = 'page'
+      AND field_category_homepage_tid = :tid", array(':tid' => $uri[2]))->fetchField();
+
+    // if there is a homepage node, make it the actual path for this URL
+    if ($nid) {
+      // contextualize breadcrumb
+      // setting this variable sets the breadcrumb appropriately
+      // for pages that are linked from multiple homepage nodes
+      $_SESSION['categories_tid'] = $uri[2];
+
+      // set the internal path as the node
+      // so the category homepage term is in the URL
+      // but its node is what's rendered
+      $path = "node/$nid";
+    }
+  }
+}
+
+/**
  * Implements hook_menu().
  */
 function categories_menu() {
@@ -103,7 +132,106 @@ function categories_form_page_node_form_alter(&$form, &$form_state, $form_id) {
     $form['field_category_homepage']['#attributes']['style'] = 'display:none';
   }
 
-  // if this is the node/add/BUNDLE page
+  if (!empty($form['#node']->field_category_homepage[LANGUAGE_NONE][0])) {
+    $settings = categories_get_settings($form['#node']->nid);
+    $form['category_content'] = array(
+      '#type' => 'fieldset',
+      '#title' => 'Manage Category Content',
+      '#description' => 'Here you can: <ol><li>Manage the pages associated with this category</li><li>Alter some display settings for those pages\' links, which are displayed on the category page</li></ol>',
+      '#weight' => 8,
+      '#collapsible' => TRUE,
+      '#tree' => TRUE,
+    );
+
+    $form['category_content']['title'] = array(
+      '#title' => 'Content Title',
+      '#description' => 'The title that will be displayed over the content. Leave blank for nothing to be displayed',
+      '#type' => 'textfield',
+      '#maxlength' => 255,
+      '#default_value' => $settings ? $settings['title'] : categories_make_possesive_title($form['#node']->title),
+    );
+
+    $form_state['category_existing_content'] = array_keys(_categories_get_homepage_nodes($form['#node']->nid, $form['#node']->field_category_homepage[LANGUAGE_NONE][0]['tid']));
+    $form['category_content']['content'] = array(
+      '#title' => 'Manage Associated Pages',
+      '#description' => 'Select pages you want added to this category. Links to these pages will be displayed at the bottom of this category page',
+      '#type' => 'select',
+      '#options' => categories_get_node_options(),
+      '#default_value' => $form_state['category_existing_content'],
+      '#multiple' => TRUE,
+      '#chosen' => TRUE,
+    );
+
+    $form['category_content']['tag'] = array(
+      '#title' => 'Link size',
+      '#type' => 'select',
+      '#options' => array(
+        'h2' => 'Largest (header 2)',
+        'h3' => 'Larger (header 3)',
+        'h4' => 'Large (header 4)',
+        'h5' => 'Smaller (header 5)',
+        'h6' => 'Small (header 6)',
+        'p' => 'Smallest (parapraph)',
+      ),
+      '#default_value' => $settings ? $settings['tag'] : 'h2',
+      '#prefix' => '<label>Link Display Settings</label><table style="border:none;"><tbody><tr><td style="width:50%;">',
+      '#suffix' => '</td>'
+    );
+
+    $form['category_content']['pager_limit'] = array(
+      '#title' => 'Links per page',
+      '#description' => 'Set how many links will be displayed on the category page. If there are more links than the number you choose, a pager will be displayed.',
+      '#type' => 'select',
+      '#options' => array(0 => ' - Display all - ') + drupal_map_assoc(range(5, 50, 5)),
+      '#default_value' => $settings ? $settings['pager_limit'] : 25,
+      '#prefix' => '<td style="width:50%; border-right:none">',
+      '#suffix' => '</td></tr><tr>'
+    );
+
+    $form['category_content']['sort_by'] = array(
+      '#title' => 'Sort links by',
+      '#description' => 'Set which field the links will be sorted by',
+      '#type' => 'select',
+      '#options' => array(
+        'n.created' => 'Date Created',
+        'changed' => 'Date Last Updated',
+        'title' => 'Page Title',
+      ),
+      '#default_value' => $settings ? $settings['sort_by'] : 'changed',
+      '#prefix' => '<td style="width:50%;">',
+      '#suffix' => '</td>'
+    );
+
+    $form['category_content']['sort_order'] = array(
+      '#title' => 'Sort Direction',
+      '#description' => 'Set the order the sort selected for "Sort links by" will be applied',
+      '#type' => 'select',
+      '#options' => array(
+        'ASC' => 'Ascending',
+        'DESC' => 'Descending',
+      ),
+      '#default_value' => $settings ? $settings['sort_order'] : 'DESC',
+      '#prefix' => '<td style="width:50%;border-right:none;">',
+      '#suffix' => '</td></tr></tbody></table>'
+    );
+
+
+    $form['category_content']['display_author'] = array(
+      '#title' => 'Display author information',
+      '#description' => 'If you select this option, the name of the last editor and the date the content was last updated will display under the content\'s title',
+      '#type' => 'checkbox',
+      '#default_value' => $settings ? $settings['display_author'] : TRUE,
+    );
+    $form['category_content']['summary'] = array(
+      '#title' => 'Display summary',
+      '#description' => 'Display the summary text for the page directly under its link. Allows for a bit more information about the content to be displayed.',
+      '#type' => 'checkbox',
+      '#default_value' => $settings ? $settings['summary'] : FALSE,
+    );
+
+    $form['#submit'][] = 'categories_content_submit';
+  }
+
   // and the parent_category ID was passed
   // set those values in $form_state, so they persist over AJAX calls
   if (arg(1) == 'add' && isset($_GET['parent_category'])) {
@@ -142,6 +270,53 @@ function categories_form_page_node_form_alter(&$form, &$form_state, $form_id) {
 
   // custom validation function for nodes
   $form['#validate'][] = '_categories_node_validate';
+}
+
+function categories_content_submit($form, $form_state) {
+  $tid = $form['#node']->field_category_homepage[LANGUAGE_NONE][0]['tid'];
+
+  // find which nodes the user removed
+  // then load those nodes and remove this category
+  $remove = array_diff($form_state['category_existing_content'], $form_state['values']['category_content']['content']);
+  foreach ($remove as $nid) {
+    $node = node_load($nid);
+    // go through all this node's categories, and remove the one for this category
+    foreach ($node->field_category[LANGUAGE_NONE] as $delta => $field) {
+      if ($field['tid'] == $tid) {
+        unset($node->field_category[LANGUAGE_NONE][$delta]);
+        break;
+      }
+    }
+    // ensure deltas are properly set
+    $node->field_category[LANGUAGE_NONE] = array_values($node->field_category[LANGUAGE_NONE]);
+
+    node_save($node);
+  }
+
+  // find the nodes the user added
+  // then load those nodes and add this category
+  $add = array_diff($form_state['values']['category_content']['content'], $form_state['category_existing_content']);
+  foreach ($add as $nid) {
+    $node = node_load($nid);
+    $node->field_category[LANGUAGE_NONE][] = array('tid' => $tid);
+    node_save($node);
+  }
+
+  unset($form_state['values']['category_content']['content']);
+
+  db_merge('categories_settings')
+    ->key(array('nid' => $form['#node']->nid))
+    ->fields($form_state['values']['category_content'])
+    ->execute();
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function categories_form_webform_node_form_alter(&$form, &$form_state, $form_id) {
+  if (arg(2) == 'form') {
+    _categories_node_form_alter($form);
+  }
 }
 
 function _categories_node_form_alter(&$form, $parent) {
@@ -257,12 +432,53 @@ function categories_node_presave($node) {
 }
 
 /**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function categories_form_taxonomy_form_term_alter(&$form, &$form_state, $form_id) {
+ /**
+  * @todo  do we want to disable editing the vocab directly, or just catch when people add manually?
+  *
+  if (0) { // @todo check if categories vocab
+    $msg = '';
+    $t_args = array()
+    drupal_set_message(t($msg, $t_args));
+  }
+  */
+}
+
+/**
  * Implements hook_node_delete().
  */
 function categories_node_delete($node) {
+
   if (!empty($node->field_category_homepage[LANGUAGE_NONE][0]['tid'])) {
     taxonomy_term_delete($node->field_category_homepage[LANGUAGE_NONE][0]['tid']);
   }
+
+}
+
+function categories_get_node_options() {
+  $d_args = array(':types' => array('page', 'webform'));
+  return db_query('SELECT nid, title FROM {node} WHERE type IN (:types) AND nid NOT IN (SELECT entity_id FROM {field_data_field_category_homepage})
+    ORDER BY title', $d_args)->fetchAllKeyed();
+}
+
+function categories_add_taxonomy_term($name, $did, $type) {
+  $tid = categories_create_taxonomy_term($name);
+  db_query('UPDATE {' . $type . '} SET tid = :tid WHERE did = :did', array(':tid' => $tid, ':did' => $did));
+}
+
+function categories_create_taxonomy_term($name, $description = '', $parent = 0) {
+  $term = (object) array(
+    'name' => $name,
+    'parent' => array($parent),
+    'description' => $description,
+    'vid' => variable_get('categories_vid'),
+  );
+
+  taxonomy_term_save($term);
+
+  return $term->tid;
 }
 
 /**
@@ -277,17 +493,74 @@ function categories_get_homepage_nodes($nid, $orderBy = 'n.changed', $direction 
       AND entity_id = :nid", array(':nid' => $nid))->fetchField();
 
   if ($tid) {
-    $nids = _categories_get_homepage_nodes($nid, $tid, $orderBy, $direction, TRUE);
+    $settings = categories_get_settings($nid);
+    $pager = TRUE;
+    if ($settings) {
+      $pager = $settings['pager_limit'];
+      $orderBy = $settings['sort_by'];
+      $direction = $settings['sort_order'];
+    }
+    $nids = _categories_get_homepage_nodes($nid, $tid, $orderBy, $direction, $pager);
     if (count($nids)) {
       $nodes = node_load_multiple(array_keys($nids));
-      $view = node_view_multiple($nodes, 'teaser');
-      $output .= render($view) . theme('pager');
+      $title = categories_make_possesive_title(drupal_get_title());
+
+      $output .= '<hr id="content-horizontal">
+        <a name="content" id="content"></a>';
+      if (!isset($settings['title'])) {
+        $output .= "<h1>$title</h1>";
+      }
+      else {
+        $output .= '<h1>' . $settings['title'] . '</h1>';
+      }
+
+      $output .= '<br>';
+
+      if ($settings) {
+        foreach ($nodes as $node) {
+          $output .= '<article><' . $settings['tag'] . '>'
+            . l($node->title, 'node/' . $node->nid)
+            . '</' . $settings['tag'] . '>';
+          if ($settings['display_author']) {
+            $output .= 'Last updated by '
+              . theme('username', array('account' => user_load($node->revision_uid)))
+              . ' on ' . date('F j, Y - g:sa', $node->changed);
+          }
+          if ($settings['summary']) {
+            $output .= '<div>';
+            if (isset($node->body[LANGUAGE_NONE][0]['summary']) &&
+              strlen($node->body[LANGUAGE_NONE][0]['summary'])) {
+              $output .= $node->body[LANGUAGE_NONE][0]['summary'];
+            }
+            else {
+              $output .= check_plain(substr($node->body[LANGUAGE_NONE][0]['value'], 0, 250));
+            }
+
+            $output .= '</div></article><br>';
+          }
+        }
+
+        $output .= '<br>';
+      }
+      else {
+         $view = node_view_multiple($nodes, 'teaser');
+         $output .= render($view);
+         $pager = TRUE;
+      }
+
+      if ($pager) {
+        $output .= theme('pager');
+      }
     }
   }
 
   return $output;
 }
 
+function categories_get_settings($nid) {
+
+  return db_query('SELECT * FROM {categories_settings} WHERE nid = :nid', array(':nid' => $nid))->fetchAssoc();
+}
 /**
  * Helper function.
  *
@@ -302,11 +575,11 @@ function _categories_get_homepage_nodes($nid, $tid, $orderBy = FALSE, $direction
   $query->addTag('node_access');
 
   // get node ID's of all subcategories of this category
-  $nids = db_query('SELECT i.nid FROM {taxonomy_term_hierarchy} h
-        INNER JOIN {taxonomy_index} i ON _i.tid = h.tid
-        WHERE h.parent = :tid', array(':tid' => $tid))->fetchCol();
+  $nids = db_query('SELECT _i.nid FROM {taxonomy_term_hierarchy} h
+        INNER JOIN {taxonomy_index} _i ON _i.tid = h.tid
+        WHERE parent = :tid', array(':tid' => $tid))->fetchCol();
   // also add this category node ID to the array, so it won't be returned in the query
-  // i.e. we don't the node we're viewing to have itself displayed in the list of tagged nodes
+  // i.e. we don't the node were viewing to have itself displayed in the list of tagged nodes
   $nids[] = $nid;
 
   $query->condition('tid', $tid)
@@ -317,7 +590,7 @@ function _categories_get_homepage_nodes($nid, $tid, $orderBy = FALSE, $direction
     $count_query->addExpression('COUNT(t.nid)');
 
     $query = $query->extend('PagerDefault');
-    $query = $query->limit(10);
+    $query = $query->limit(($pager > 1 ? $pager : 10));
     $query->setCountQuery($count_query);
   }
 
@@ -368,4 +641,15 @@ function categories_get_homepage_node($tid) {
     FROM {field_data_field_category_homepage}
     WHERE entity_type = :type AND bundle = :bundle AND field_category_homepage_tid = :tid', $d_args
   )->fetchField();
+}
+
+function categories_make_possesive_title($title) {
+  $title .= "'";
+  if (substr($title, -2, 1) !== 's') {
+    $title .= 's';
+  }
+
+  $title .= ' Content';
+
+  return $title;
 }
