@@ -1,5 +1,12 @@
 <?php
 
+/**
+ * @file categories.pages.inc
+ *
+ * @author Joe Corall <jcorall@kent.edu>
+ */
+
+
 function categories_node($node, $type, $bundle = 'page') {
   $options = array(
     'query' => array(
@@ -48,7 +55,7 @@ function categories_node_transform_submit($form, &$form_state) {
     $tid = FALSE;
 
     // @todo fix
-    $tid = categories_create_taxonomy_term($node->title, FALSE, '', $form_state['values']['parent']);
+    $tid = categories_create_taxonomy_term($node->title, '', $form_state['values']['parent']);
 
     if ($tid) {
       $node->field_category_homepage[LANGUAGE_NONE][0]['tid'] = $tid;

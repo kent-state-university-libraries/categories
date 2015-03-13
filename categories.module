@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * @file categories.module
+ *
+ * @author Joe Corall <jcorall@kent.edu>
+ */
+
 define('CATEGORIES_NODE', 1);
 define('CATEGORIES_ADD', 2);
 define('CATEGORIES_NODE_MOVE', 3);
@@ -394,7 +400,7 @@ function categories_field_attach_submit($entity_type, $entity, $form, &$form_sta
   if ($entity_type == 'node'
     && !empty($form_state['categories_create'])) {
     // create a taxonomy term for this node
-    $tid = categories_create_taxonomy_term($entity->title, FALSE, '', $form_state['values']['field_category'][LANGUAGE_NONE][0]['tid']);
+    $tid = categories_create_taxonomy_term($entity->title, '', $form_state['values']['field_category'][LANGUAGE_NONE][0]['tid']);
     // and set the field_category_homepage to the new taxonomy term ID
     $entity->field_category_homepage[LANGUAGE_NONE][0]['tid'] = $tid;
     $entity->field_category[LANGUAGE_NONE][0]['tid'] = $tid;
