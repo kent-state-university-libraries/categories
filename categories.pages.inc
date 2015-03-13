@@ -7,7 +7,7 @@
  */
 
 
-function categories_node($node, $type, $bundle = 'page') {
+function categories_node($node, $type) {
   $options = array(
     'query' => array(
       'new_category' => $type == CATEGORIES_ADD,
@@ -15,7 +15,7 @@ function categories_node($node, $type, $bundle = 'page') {
     ),
   );
 
-  drupal_goto("node/add/$bundle", $options, 301);
+  drupal_goto("node/add/{$node->type}", $options, 301);
 }
 
 function categories_node_transform($form, &$form_state, $node) {
