@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * @file categories.install
+ *
+ * @author Joe Corall <jcorall@kent.edu>
+ */
 
 /**
  * Implements hook_schema().
@@ -63,19 +68,25 @@ function categories_schema() {
  * Implements hook_install().
  */
 function categories_install() {
+  // create a taxonomy vocabulary
 
-  $vocabulary = taxonomy_vocabulary_machine_name_load('categories_menu_vocab_h3h');
+  // make the machine the most unlikely to cause a collision with one that exists
+  $machine_name = 'categories_menu_112358';
+
+  $vocabulary = taxonomy_vocabulary_machine_name_load($machine_name);
   if (!$vocabulary) {
     $vocabulary = (object) array(
       'name' => 'Categories',
-      // unique machine name to try to ensure no collisions
-      'machine_name' => 'categories_menu_vocab_h3h',
+      'machine_name' => $machine_name,
     );
 
     taxonomy_vocabulary_save($vocabulary);
   }
+  else {
+    // @todo fail gracefully
+  }
 
-  //@ todo set taxonomy_menu settings
+  //@todo set taxonomy_menu settings
 
   variable_set('categories_vid', $vocabulary->vid);
 }
