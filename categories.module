@@ -24,6 +24,7 @@ function categories_ctools_plugin_directory($owner, $plugin_type) {
  * Implements hook_url_inbound_alter().
  */
 function categories_url_inbound_alter(&$path, $original_path, $path_language) {
+  // @todo do in hook_boot()??
   $uri = explode('/', $path);
   $count = count($uri);
 
@@ -31,7 +32,7 @@ function categories_url_inbound_alter(&$path, $original_path, $path_language) {
   if ($count == 3 && $uri[0] == 'taxonomy') {
     // see if there is a node that acts as this term's homepage
     $nid = db_query("SELECT entity_id FROM {field_data_field_category_homepage}
-      WHERE entity_type = 'node' AND bundle = 'page'
+      WHERE entity_type = 'node'
       AND field_category_homepage_tid = :tid", array(':tid' => $uri[2]))->fetchField();
 
     // if there is a homepage node, make it the actual path for this URL
@@ -41,10 +42,8 @@ function categories_url_inbound_alter(&$path, $original_path, $path_language) {
       // for pages that are linked from multiple homepage nodes
       $_SESSION['categories_tid'] = $uri[2];
 
-      // set the internal path as the node
-      // so the category homepage term is in the URL
-      // but its node is what's rendered
-      $path = "node/$nid";
+      // go to the actual node's page
+      drupal_goto("node/$nid");
     }
   }
 }
