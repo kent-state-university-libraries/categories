@@ -554,7 +554,14 @@ function categories_get_homepage_nodes($nid, $orderBy = 'n.changed', $direction 
       }
 
       if ($pager) {
-        $output .= theme('pager');
+        global $pager_limits, $pager_page_array;
+        $t_arg = array('element' => 0);
+        foreach ($pager_page_array as $element => $value) {
+          if ($pager_limits[$element] == $pager) {
+            $t_arg['element'] = $element;
+          }
+        }
+        $output .= theme('pager', $t_arg);
       }
     }
   }
@@ -563,9 +570,10 @@ function categories_get_homepage_nodes($nid, $orderBy = 'n.changed', $direction 
 }
 
 function categories_get_settings($nid) {
-
-  return db_query('SELECT * FROM {categories_settings} WHERE nid = :nid', array(':nid' => $nid))->fetchAssoc();
+  return db_query('SELECT * FROM {categories_settings}
+    WHERE nid = :nid', array(':nid' => $nid))->fetchAssoc();
 }
+
 /**
  * Helper function.
  *
@@ -591,12 +599,9 @@ function _categories_get_homepage_nodes($nid, $tid, $orderBy = FALSE, $direction
         ->condition('t.nid', $nids, 'NOT IN');
 
   if ($pager) {
-    $count_query = clone $query;
-    $count_query->addExpression('COUNT(t.nid)');
-
     $query = $query->extend('PagerDefault');
-    $query = $query->limit(($pager > 1 ? $pager : 10));
-    $query->setCountQuery($count_query);
+    $limit = $pager > 1 ? $pager : 10;
+    $query->limit($limit);
   }
 
   $query->fields('n', array('nid', 'title'));
