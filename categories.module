@@ -589,8 +589,10 @@ function _categories_get_homepage_nodes($nid, $tid, $orderBy = FALSE, $direction
 
   // get node ID's of all subcategories of this category
   $nids = db_query('SELECT _i.nid FROM {taxonomy_term_hierarchy} h
-        INNER JOIN {taxonomy_index} _i ON _i.tid = h.tid
-        WHERE parent = :tid', array(':tid' => $tid))->fetchCol();
+    INNER JOIN {taxonomy_index} _i ON _i.tid = h.tid
+    INNER JOIN {field_data_field_category_homepage} c
+      ON c.entity_type = :type AND c.entity_id = _i.nid AND c.field_category_homepage_tid = _i.tid
+    WHERE parent = :tid', array(':tid' => $tid, ':type' => 'node'))->fetchCol();
   // also add this category node ID to the array, so it won't be returned in the query
   // i.e. we don't the node were viewing to have itself displayed in the list of tagged nodes
   $nids[] = $nid;
