@@ -523,6 +523,9 @@ function categories_get_homepage_nodes($nid, $orderBy = 'n.changed', $direction 
 
       if ($settings) {
         foreach ($nodes as $node) {
+          if (!strlen($node->title)) {
+            $node->title = '[untitled]';
+          }
           $output .= '<article><' . $settings['tag'] . '>'
             . l($node->title, 'node/' . $node->nid)
             . '</' . $settings['tag'] . '>';
