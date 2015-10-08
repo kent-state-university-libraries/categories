@@ -428,6 +428,7 @@ function categories_node_presave($node) {
       $node->field_category[LANGUAGE_NONE][0]['tid'] !== $node->field_category_homepage[LANGUAGE_NONE][0]['tid']) {
       $term->parent = array($node->field_category[LANGUAGE_NONE][0]['tid']);
       $node->field_category[LANGUAGE_NONE][0]['tid'] = $node->field_category_homepage[LANGUAGE_NONE][0]['tid'];
+      $node->categories_moved = TRUE;
       $save = TRUE;
     }
     if ($save) {
