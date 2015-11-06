@@ -10,6 +10,7 @@ define('CATEGORIES_NODE', 1);
 define('CATEGORIES_ADD', 2);
 define('CATEGORIES_NODE_MOVE', 3);
 define('CATEGORIES_TRANSFORM', 4);
+define('CATEGORIES_REMOVE', 5);
 
 /**
  * Implements hook_ctools_plugin_directory().
@@ -88,6 +89,17 @@ function categories_menu() {
     'file' => 'categories.pages.inc',
   );
 
+  $items['node/%node/remove-category'] = array(
+    'title' => 'Turn this category into a page',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('categories_node_remove_category', 1),
+    'access callback' => 'categories_access',
+    'access arguments' => array(1, (string) CATEGORIES_REMOVE),
+    'type' => MENU_LOCAL_ACTION,
+    'weight' => 40,
+    'file' => 'categories.pages.inc',
+  );
+
   return $items;
 }
 
@@ -101,9 +113,12 @@ function categories_node_submit($node, $form, &$form_state) {
 }
 
 function categories_access($entity, $action = FALSE) {
+  // @todo remove hard coding of content type and query for content type settings that have "categories" feature enabled
   switch ($action) {
     case CATEGORIES_TRANSFORM:
       return $entity->type == 'page' && node_access('update', $entity) && empty($entity->field_category_homepage[LANGUAGE_NONE][0]['tid']);
+    case CATEGORIES_REMOVE:
+      return $entity->type == 'page' && node_access('update', $entity) && !empty($entity->field_category_homepage[LANGUAGE_NONE][0]['tid']);
     case CATEGORIES_ADD:
     case CATEGORIES_NODE:
       return node_access('update', $entity) && !empty($entity->field_category_homepage[LANGUAGE_NONE][0]['tid']);
