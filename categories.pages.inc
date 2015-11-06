@@ -89,7 +89,7 @@ function categories_node_remove_category($form, &$form_state, $node) {
     return $form;
   }
   else {
-    $msg = t('Are you sure you want to transform %title into a category?', array('%title' => $node->title));
+    $msg = t('Are you sure you want to transform the category %title into a page?', array('%title' => $node->title));
 
     $form['nid'] = array('#type' => 'value', '#value' => $node->nid);
 
